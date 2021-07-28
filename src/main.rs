@@ -15,6 +15,66 @@ use rayon::prelude::*;
 
 const TAG_LEN: usize = 24;
 
+
+struct MixCreationParameters {
+        // The routing information length for each stage of the packet creation
+        // The routing length is inner first, so [0] is the innermost routing length, etc
+        routing_information_length_by_stage: Vec<usize>,
+        // The payload length
+        payload_length_bytes: usize,
+}
+
+impl MixCreationParameters {
+
+    // Create a set of parameters for a mix packet format
+    fn new(payload_length_bytes : usize) -> MixCreationParameters {
+        MixCreationParameters {
+            routing_information_length_by_stage: Vec::new(),
+            payload_length_bytes
+        }
+    }
+
+    // Add another outer layer containing some byte length of routing data
+    fn add_outer_layer(&mut self, routing_information_length_bytes : usize ) {
+        self.routing_information_length_by_stage.push(routing_information_length_bytes);
+    }
+
+    //The length of the buffer needed to build a packet
+    fn total_packet_length(&self) -> usize {
+        let mut len = self.payload_length_bytes;
+        for stage_len in &self.routing_information_length_by_stage {
+            len += stage_len + curve25519::GROUPELEMENTBYTES + chacha20poly1305_ietf::TAGBYTES
+        }
+        len
+    }
+
+    fn get_stage_params(&self, layer_number : usize) -> (Range<usize>, MixStageParameters) {
+        assert!(layer_number < self.routing_information_length_by_stage.len());
+
+        let mut remaining_header_length_bytes = 0;
+        for (i, stage_len) in self.routing_information_length_by_stage.iter().enumerate() {
+            if i == layer_number {
+                let params = MixStageParameters {
+                    routing_information_length_bytes : *stage_len,
+                    remaining_header_length_bytes,
+                    payload_length_bytes : self.payload_length_bytes
+                };
+
+                let total_size = self.total_packet_length();
+                let inner_size = params.incoming_packet_length();
+
+                return (total_size - inner_size..total_size, params);
+            }
+            else {
+                remaining_header_length_bytes += stage_len + curve25519::GROUPELEMENTBYTES + chacha20poly1305_ietf::TAGBYTES;
+            }
+        }
+
+        unreachable!();
+    }
+
+}
+
 struct MixStageParameters {
     // The routing information length for this stage of mixing
     routing_information_length_bytes: usize,
@@ -284,4 +344,71 @@ mod tests {
         assert!(&message_clone[..] == &message[..]);
 
     }
+
+
+    #[test]
+    fn test_packet_params() {
+
+        // Dummy keys -- we will use the same key for each layer
+        let user_secret_bytes = randombytes(32);
+        let mix_secret_bytes = randombytes(32);
+
+        let user_secret: curve25519::Scalar =
+            curve25519::Scalar::from_slice(&user_secret_bytes).unwrap();
+        let mix_secret: curve25519::Scalar =
+            curve25519::Scalar::from_slice(&mix_secret_bytes).unwrap();
+        let mix_public_key = curve25519::scalarmult_base(&mix_secret);
+
+        let routing = [0; 32];
+
+
+        let mut params = MixCreationParameters::new(1025);
+        params.add_outer_layer(32);
+        params.add_outer_layer(32);
+        params.add_outer_layer(32);
+
+        let mut buf = vec![0; params.total_packet_length()];
+
+        let (range0, layer_params0) = params.get_stage_params(0);
+        let _ = layer_params0.encode_mix_layer(
+            &mut buf[range0.clone()],
+            &user_secret,
+            &mix_public_key,
+            &routing[..],
+        ).unwrap();
+
+        let (range1, layer_params1) = params.get_stage_params(1);
+        let _ = layer_params1.encode_mix_layer(
+            &mut buf[range1.clone()],
+            &user_secret,
+            &mix_public_key,
+            &routing[..],
+        ).unwrap();
+
+        let (range2, layer_params2) = params.get_stage_params(2);
+        let _ = layer_params2.encode_mix_layer(
+            &mut buf[range2.clone()],
+            &user_secret,
+            &mix_public_key,
+            &routing[..],
+        ).unwrap();
+
+        assert!(&buf[params.total_packet_length()-1025..params.total_packet_length()] != [0;1025]);
+
+        let _ = layer_params2
+        .decode_mix_layer(&mut buf[range2], &mix_secret)
+        .unwrap();
+
+        let _ = layer_params1
+        .decode_mix_layer(&mut buf[range1], &mix_secret)
+        .unwrap();
+
+        let _ = layer_params0
+        .decode_mix_layer(&mut buf[range0], &mix_secret)
+        .unwrap();
+
+
+
+    }
+
 }
