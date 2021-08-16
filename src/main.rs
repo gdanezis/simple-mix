@@ -16,12 +16,12 @@ use rayon::prelude::*;
 const TAG_LEN: usize = 24;
 
 
-struct MixCreationParameters {
+pub struct MixCreationParameters {
         // The routing information length for each stage of the packet creation
         // The routing length is inner first, so [0] is the innermost routing length, etc
-        routing_information_length_by_stage: Vec<usize>,
+        pub routing_information_length_by_stage: Vec<usize>,
         // The payload length
-        payload_length_bytes: usize,
+        pub payload_length_bytes: usize,
 }
 
 impl MixCreationParameters {
@@ -75,17 +75,17 @@ impl MixCreationParameters {
 
 }
 
-struct MixStageParameters {
+pub struct MixStageParameters {
     // The routing information length for this stage of mixing
-    routing_information_length_bytes: usize,
+    pub routing_information_length_bytes: usize,
     // The reamining header length for this stage of mixing
-    remaining_header_length_bytes: usize,
+    pub remaining_header_length_bytes: usize,
     // The payload length
-    payload_length_bytes: usize,
+    pub payload_length_bytes: usize,
 }
 
 impl MixStageParameters {
-    fn incoming_packet_length(&self) -> usize {
+    pub fn incoming_packet_length(&self) -> usize {
         return curve25519::GROUPELEMENTBYTES
             + chacha20poly1305_ietf::TAGBYTES
             + self.outgoing_packet_length();
@@ -106,7 +106,7 @@ impl MixStageParameters {
             ..curve25519::GROUPELEMENTBYTES + chacha20poly1305_ietf::TAGBYTES
     }
 
-    fn routing_data_range(&self) -> Range<usize> {
+    pub fn routing_data_range(&self) -> Range<usize> {
         curve25519::GROUPELEMENTBYTES + chacha20poly1305_ietf::TAGBYTES
             ..curve25519::GROUPELEMENTBYTES
                 + chacha20poly1305_ietf::TAGBYTES
@@ -121,11 +121,11 @@ impl MixStageParameters {
                 + self.remaining_header_length_bytes
     }
 
-    fn payload_range(&self) -> Range<usize> {
+    pub fn payload_range(&self) -> Range<usize> {
         self.incoming_packet_length() - self.payload_length_bytes..self.incoming_packet_length()
     }
 
-    fn encode_mix_layer(
+    pub fn encode_mix_layer(
         &self,
         buffer: &mut [u8],
         user_secret_key: &curve25519::Scalar,
@@ -163,7 +163,7 @@ impl MixStageParameters {
         Ok(shared_key)
     }
 
-    fn decode_mix_layer(
+    pub fn decode_mix_layer(
         &self,
         buffer: &mut [u8],
         mix_secret_key: &curve25519::Scalar,
@@ -198,7 +198,7 @@ impl MixStageParameters {
     }
 }
 
-fn lion_transform(message: &mut [u8], key: &[u8]) {
+pub fn lion_transform(message: &mut [u8], key: &[u8]) {
     assert!(key.len() == 32);
     assert!(message.len() >= TAG_LEN * 2);
 
@@ -231,7 +231,7 @@ fn lion_transform(message: &mut [u8], key: &[u8]) {
     );
 }
 
-fn main() {
+pub fn main() {
     init().unwrap();
 
     let mix_params = MixStageParameters {
