@@ -1,2 +1,2 @@
-pub mod format;
 pub mod lion;
+pub mod format;

@@ -1,22 +1,12 @@
 extern crate simple_mix;
 
-use sodiumoxide::crypto::aead::chacha20poly1305_ietf;
-use sodiumoxide::crypto::scalarmult::curve25519;
-use sodiumoxide::randombytes::randombytes;
-use sodiumoxide::utils::{memzero, mlock, munlock};
-
-use sodiumoxide::init;
-
-use std::time::Instant;
-
-use sodiumoxide::crypto::auth;
-use sodiumoxide::crypto::kdf;
-use sodiumoxide::crypto::stream;
 
 #[cfg(test)]
 mod tests {
 
-    use super::*;
+    use sodiumoxide::crypto::scalarmult::curve25519;
+    use sodiumoxide::randombytes::randombytes;
+
     use simple_mix::format::*;
     use simple_mix::lion::*;
 
