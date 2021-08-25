@@ -1,3 +1,59 @@
+//! # The `simple_mix` format
+//! 
+//! We define a simple mix packet format geared towards simplicity and performance with the features that are
+//! specifically required by a stratified mix topology. 
+//! 
+//! `Simple_mix` assumes that all
+//! paths are the same length (no need to hide path lengths), mixes are arranged in layers and therefore
+//! know their position in a message path (no need to hide this position). These assumptions allow us 
+//! to do away with some of the padding traditionally used; further we prioritize efficient computation 
+//! over very low-bandwidth, as it seems the rate of public key operations is a bottleneck for mixes
+//! rather than the availablility of bandwidth.
+//! 
+//! ## Overview and Parameters
+//! 
+//! In a mix network with a stratified topology packets are mixed by nodes at each of the layers. Each layer
+//! 'strips' the packet from one layer of encryption, recovers the address of the mix at the next layer, and 
+//! passes the decoded packet to them. An identifier per processed message is stored and checked to prevent 
+//! replays of processed messages at each layer. Additional measures, such as adding delays, adding dummy 
+//! traffic or dropping messages can be empued at each mix to frustrate traffic analysis.
+//! 
+//! 
+//! A layer of mix processing is defined by three parameters, includes in the structure [MixStageParameters]:
+//! * The `routing_information_length_bytes` (`R`) states the number of bytes representing 
+//!   routing information at this layer. 
+//! * The `remaining_header_length_bytes` (`H`) represents the remaining bytes of the packet header.
+//! * The `payload_length_bytes` (`P`). 
+//! 
+//! In addition we define two system-wide constants, namely `GROUPELEMENTBYTES` (`GE`=32) and 
+//! `TAGBYTES` (`T`=24).
+//! 
+//! ## Packet format, decoding
+//! 
+//! A mix at this layer takes in messages of length `GE+T+R+H+P`, and outputs messages of length `H+P`. 
+//! 
+//! An input message is processed as follows:
+//! 
+//! * The input packet is parsed as a `[Pk, Tag, Header, Payload]` of length `[GE, T, R+H, P]` respectivelly.
+//! * A master key is derived by performing scalar multiplication with the mix secret 's', ie `K = s * Pk`. 
+//!   The master key is stored and checked for duplicates (if it is found processing ends.)
+//! * The master key is used to perform AEAD decryption of the `Header` with an IV of zeros and the `tag`. If 
+//!   decryption fails processing ends. Otherwise the Header is parsed as `[Routing, Next_Header]` of length 
+//!   `[R, H]` respectivelly. The routing data `Routing` can be used by the mix to dertermine the next mix.
+//! * Finally, the master key is used to perform lion decoding of the `Payload` into `Next_Payload`.
+//! * The output packet for the next mix is `[Next_Header, Next_Payload]`.
+//! 
+//! As an AEAD we use `chacha20poly1305_ietf` and for public key operations we use `curve25519`. 
+//! 
+//! ## Packet encoding 
+//! 
+//! Encoding is 
+//! performed layer by layer starting with the last hop on the route, and ending with the first. At each stage 
+//! of encoding a new Secret key `Sk` and corresponding `Pk` is chosen. The layer master key for the layer is 
+//! derived using the mix public key. And the master key is used to AEAD encrypt the concatenation of the 
+//! routing data for the layer, and the remaining Header; separately the master key is used to lion encrypt 
+//! the payload. The process is repeated for each layer (from last to first) to construct the full message.
+
 use sodiumoxide::crypto::aead::chacha20poly1305_ietf;
 use sodiumoxide::crypto::scalarmult::curve25519;
 
@@ -8,7 +64,7 @@ use crate::lion::*;
 /// A structure that holds mix packet construction parameters. These incluse the length
 /// of the routing information at each hop, the number of hops, and the payload length.
 pub struct MixCreationParameters {
-    /// The routing length is inner first, so [0] is the innermost routing length, etc (in bytes)
+    /// The routing length is inner first, so \[0\] is the innermost routing length, etc (in bytes)
     pub routing_information_length_by_stage: Vec<usize>,
     /// The payload length (in bytes)
     pub payload_length_bytes: usize,
